@@ -3,6 +3,8 @@ package edu.escuelaing.app;
 import java.io.IOException;
 import java.net.*;
 import java.io.*;
+import java.util.HashMap;
+import java.util.Map;
 
 public class HttpServer{
     public static void main(String[]args) throws IOException, URISyntaxException {
@@ -14,6 +16,9 @@ public class HttpServer{
             System.exit(1);
             }
         boolean running = true;
+
+        int idCounter = 0;
+        Map<Integer, String> dataStore = new HashMap<>();
 
         while (running) {
 
@@ -27,103 +32,153 @@ public class HttpServer{
             }
 
             PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+
             BufferedReader in = new BufferedReader(
                     new InputStreamReader(
                             clientSocket.getInputStream()));
+
+            BufferedOutputStream dataOut = new BufferedOutputStream(clientSocket.getOutputStream());
+
             String inputLine, outputLine;
 
             boolean isFirstLine = true;
-            String file = "";
+            String filePath = "";
+            String HTTPRequest = "";
             while ((inputLine = in.readLine()) != null) {
                 if (isFirstLine){
-                    file = inputLine.split(" ")[1];
+                    HTTPRequest = inputLine.split(" ")[0];
+                    filePath = inputLine.split(" ")[1];
                     isFirstLine = false;
                 }
-                System.out.println("Received:" + inputLine);
+
                 if (!in.ready()) {
                     break;
                 }
             }
 
-            URI resourceURI = new URI(file);
-            System.out.println("URI: "+ resourceURI.getQuery());
-
-
-            if (resourceURI.getPath().startsWith("/app/hello")){
-                outputLine = helloRestService(resourceURI.getPath(), resourceURI.getQuery());
-            } else if (resourceURI.getPath().startsWith("/app/hellopost")) {
-                outputLine = helloRestService(resourceURI.getPath(), resourceURI.getQuery());
-            } else {
-                outputLine = "HTTP/1.1 200 OK\r\n"
-                        + "Content-Type: text/html\r\n"
-                        + "\r\n"
-                        + "<!DOCTYPE html>\n" +
-                        "<html>\n" +
-                        "    <head>\n" +
-                        "        <title>Form Example</title>\n" +
-                        "        <meta charset=\"UTF-8\">\n" +
-                        "        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n" +
-                        "    </head>\n" +
-                        "    <body>\n" +
-                        "        <h1>Form with GET</h1>\n" +
-                        "        <form action=\"/hello\">\n" +
-                        "            <label for=\"name\">Name:</label><br>\n" +
-                        "            <input type=\"text\" id=\"name\" name=\"name\" value=\"John\"><br><br>\n" +
-                        "            <input type=\"button\" value=\"Submit\" onclick=\"loadGetMsg()\">\n" +
-                        "        </form> \n" +
-                        "        <div id=\"getrespmsg\"></div>\n" +
-                        "\n" +
-                        "        <script>\n" +
-                        "            function loadGetMsg() {\n" +
-                        "                let nameVar = document.getElementById(\"name\").value;\n" +
-                        "                const xhttp = new XMLHttpRequest();\n" +
-                        "                xhttp.onload = function() {\n" +
-                        "                    document.getElementById(\"getrespmsg\").innerHTML =\n" +
-                        "                    this.responseText;\n" +
-                        "                }\n" +
-                        "                xhttp.open(\"GET\", \"/app/hello?name=\"+nameVar);\n" +
-                        "                xhttp.send();\n" +
-                        "            }\n" +
-                        "        </script>\n" +
-                        "\n" +
-                        "        <h1>Form with POST</h1>\n" +
-                        "        <form action=\"/hellopost\">\n" +
-                        "            <label for=\"postname\">Name:</label><br>\n" +
-                        "            <input type=\"text\" id=\"postname\" name=\"name\" value=\"John\"><br><br>\n" +
-                        "            <input type=\"button\" value=\"Submit\" onclick=\"loadPostMsg(postname)\">\n" +
-                        "        </form>\n" +
-                        "        \n" +
-                        "        <div id=\"postrespmsg\"></div>\n" +
-                        "        \n" +
-                        "        <script>\n" +
-                        "            function loadPostMsg(name){\n" +
-                        "                let url = \"/app/hellopost?name=\" + name.value;\n" +
-                        "\n" +
-                        "                fetch (url, {method: 'POST'})\n" +
-                        "                    .then(x => x.text())\n" +
-                        "                    .then(y => document.getElementById(\"postrespmsg\").innerHTML = y);\n" +
-                        "            }\n" +
-                        "        </script>\n" +
-                        "    </body>\n" +
-                        "</html>"
-                        + inputLine;
+            if (filePath.equals("/")){
+                filePath = "/index.html";
             }
 
-            out.println(outputLine);
+            System.out.println("Request: " + HTTPRequest);
+            System.out.println("FilePath: " + filePath);
+
+            File file = new File("public" + filePath);
+
+            URI resourceURI = new URI(filePath);
+
+            System.out.println("URI: "+ resourceURI.getQuery());
+
+            System.out.println("Counter: " + idCounter);
+
+            if (filePath.startsWith("/app/rest-service")) {
+                handleRestRequest(HTTPRequest, filePath, resourceURI.getQuery(),out, dataStore, idCounter);
+                if (HTTPRequest.equals("POST")) {
+                    idCounter += 1;
+                }
+            } else {
+
+
+                if (file.exists() && !file.isDirectory()) {
+                    String contentType = getContentType(filePath);
+
+                    // Leer el archivo
+                    byte[] fileData = readFileData(file);
+
+                    // Enviar respuesta HTTP
+                    out.println("HTTP/1.1 200 OK");
+                    out.println("Content-Type: " + contentType);
+                    out.println("Content-Length: " + fileData.length);
+                    out.println();
+                    out.flush();
+
+                    dataOut.write(fileData, 0, fileData.length);
+                    dataOut.flush();
+                } else {
+                    // Archivo no encontrado
+                    String errorMessage = "HTTP/1.1 404 Not Found\r\n"
+                            + "Content-Type: text/html\r\n"
+                            + "\r\n"
+                            + "<h1>404 File Not Found</h1>";
+                    out.println(errorMessage);
+                }
+            }
+
+            System.out.println("--------------------------------------------");
 
             out.close();
             in.close();
+            dataOut.close();
             clientSocket.close();
         }
         serverSocket.close();
     }
 
-    private static String helloRestService(String path, String query) {
-        query = query.split("=")[1];
-        String response = "HTTP/1.1 200 OK\r\n"
-                + "Content-Type: application/json\r\n"
-                + "\r\n"
-                +"'{\"name\":\"" + query + "\", \"age\":30, \"car\":null}'";
-        return response;
+    private static String getContentType(String filePath) {
+        if (filePath.endsWith(".html") || filePath.endsWith(".htm")) {
+            return "text/html";
+        } else if (filePath.endsWith(".css")) {
+            return "text/css";
+        } else if (filePath.endsWith(".js")) {
+            return "application/javascript";
+        } else if (filePath.endsWith(".png")) {
+            return "image/png";
+        } else if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg")) {
+            return "image/jpeg";
+        } else {
+            return "application/octet-stream"; // Tipo genérico
+        }
     }
+
+    private static byte[] readFileData(File file) throws IOException {
+        FileInputStream fileInputStream = new FileInputStream(file);
+        byte[] fileData = new byte[(int) file.length()];
+        fileInputStream.read(fileData);
+        fileInputStream.close();
+        return fileData;
+    }
+
+    private static void handleRestRequest(String method, String filePath, String requestBody, PrintWriter out, Map<Integer, String> dataStore, int idCounter) {
+        String response = "";
+        String idParam = filePath.replace("/app/rest-service/", "").trim();
+
+        if (method.equals("GET")) {
+            // Convertir los valores a una lista de strings con comillas
+            StringBuilder namesJson = new StringBuilder("[ \n ");
+            for (int i = 0 ; i < dataStore.size() ; i++) {
+                namesJson.append("\n {\"id\":").
+                        append(String.valueOf(i+1) + ", ").
+                        append("\"name\": \"").
+                        append(dataStore.get(i) + "\" },");
+            }
+
+            // Eliminar la última coma y cerrar el arreglo
+            if (namesJson.length() > 1) {
+                namesJson.deleteCharAt(namesJson.length() - 1);
+            }
+            namesJson.append("]");
+
+            // Crear la respuesta JSON
+            response = "HTTP/1.1 200 OK\r\n"
+                    + "Content-Type: application/json\r\n"
+                    + "\r\n"
+                    + "{ \"names\": " + namesJson.toString() + " }";
+        } else if (method.equals("POST")) {
+            String newName = requestBody.replace("name=", "").trim();
+            dataStore.put(idCounter, newName);
+            response = "HTTP/1.1 201 Created\r\n"
+                    + "Content-Type: application/json\r\n"
+                    + "\r\n"
+                    + "{\"id\":" + idCounter + ", \"name\":\"" + newName + "\"}";
+        } else {
+            response = "HTTP/1.1 405 Method Not Allowed\r\n"
+                    + "Content-Type: application/json\r\n"
+                    + "\r\n"
+                    + "{\"error\":\"Method not allowed\"}";
+        }
+
+        out.println(response);
+    }
+
+
 }
